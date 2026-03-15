@@ -33,7 +33,7 @@
     .map-link { color: inherit; text-decoration: none; transition: 0.2s; }
     .map-link:hover { color: var(--gold); text-decoration: underline; }
     .content { flex: 1; padding: 30px 32px 80px; transition: 0.3s; }
-    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+    .card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
     .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; transition: 0.2s; }
     .card:hover { border-color: var(--gold); transform: translateY(-3px); }
     .card-img { width: 100%; aspect-ratio: 16/10; object-fit: cover; background: #1a1814; cursor: pointer; }
@@ -69,6 +69,7 @@
   <div class="header-inner">
     <div class="logo">전시 안내</div>
     <div class="filter-group">
+      <input type="text" id="keywordSearch" class="date-text" placeholder="제목/장소/내용 검색" style="width:160px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:7px 10px;" onkeyup="if(event.keyCode==13)applyVisitFilter()">
       <div class="date-input-wrap">
         <input type="text" id="visitDateText" class="date-text" placeholder="방문일 yyyy.mm.dd" maxlength="10" onkeyup="if(window.event.keyCode==13){applyVisitFilter()}">
         <span class="gray-icon">📅</span>
@@ -76,13 +77,17 @@
       </div>
       <button class="filter-btn today-btn" onclick="setToday()">Today</button>
       <button class="filter-btn" onclick="applyVisitFilter()">전시 찾기</button>
+      <button class="filter-btn today-btn" onclick="resetAll()">초기화</button>
     </div>
   </div>
 </header>
 <div class="status-bar"><span id="loadInfo">데이터 연결 중...</span><span id="timerInfo"></span></div>
 <div class="page-body">
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-title">Place Filter</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:15px;">
+      <div class="sidebar-title" style="margin-bottom:0">Place Filter</div>
+      <button onclick="resetPlaces()" style="background:none;border:1px solid var(--border);color:var(--text-muted);font-size:0.7rem;padding:2px 8px;border-radius:3px;cursor:pointer;">Reset</button>
+    </div>
     <div class="place-search-wrap">
       <input type="text" id="placeSearch" class="place-search-input" placeholder="장소명 검색..." oninput="filterPlaceList()">
     </div>
@@ -94,10 +99,11 @@
   </main>
 </div>
 <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this) closeModal()">
-  <div class="modal-content">
+  <div class="modal-content" id="modalContent">
     <button class="modal-close" onclick="closeModal()">✕</button>
     <div class="modal-inner">
       <div id="modalTitle" class="modal-title"></div>
+      <img id="modalImg" style="width:100%;max-height:400px;object-fit:contain;margin-bottom:20px;border-radius:8px;" src="" alt="">
       <div class="modal-grid">
         <div class="info-item"><div class="info-label">Period</div><div id="modalPeriod" class="info-value"></div></div>
         <div class="info-item"><div class="info-label">Place</div><div id="modalSite" class="info-value"></div></div>
@@ -161,18 +167,32 @@ function generatePlaceList() {
   const container = document.getElementById('placeList');
   const sites = [...new Set(allExhibitions.map(item => item.site))].sort();
   container.innerHTML = sites.map((site, i) => `
-    <div class="place-item">
-      <input type="checkbox" data-site-idx="${i}">
-      <a href="${getNaverMapLink(site)}" target="_blank" class="map-link">${sanitizeHTML(site)}</a>
+    <div class="place-item" style="cursor:pointer;" onclick="togglePlaceByIdx(${i})">
+      <input type="checkbox" data-site-idx="${i}" onclick="event.stopPropagation();togglePlaceByIdx(${i})">
+      <span>${sanitizeHTML(site)}</span>
     </div>
   `).join('');
   container._sites = sites;
-  container.addEventListener('change', (e) => {
-    if (e.target.type === 'checkbox') {
-      const site = container._sites[e.target.dataset.siteIdx];
-      if (site) togglePlace(site);
-    }
-  });
+}
+
+function togglePlaceByIdx(i) {
+  const container = document.getElementById('placeList');
+  const site = container._sites[i];
+  const cb = container.querySelector(`input[data-site-idx="${i}"]`);
+  if (selectedPlaces.has(site)) { selectedPlaces.delete(site); cb.checked = false; }
+  else { selectedPlaces.add(site); cb.checked = true; }
+  filterData();
+}
+function resetPlaces() {
+  selectedPlaces.clear();
+  document.querySelectorAll('#placeList input[type=checkbox]').forEach(cb => cb.checked = false);
+  filterData();
+}
+function resetAll() {
+  document.getElementById('keywordSearch').value = '';
+  vText.value = '';
+  vPicker.value = '';
+  resetPlaces();
 }
 function togglePlace(site) {
   if (selectedPlaces.has(site)) selectedPlaces.delete(site);
@@ -182,10 +202,21 @@ function togglePlace(site) {
 function applyVisitFilter() { filterData(); }
 function filterData() {
   const visitDate = vText.value.replace(/\./g, '');
+  const keyword = document.getElementById('keywordSearch').value.toLowerCase().trim();
   displayData = allExhibitions.filter(item => {
     const isPlaceMatch = selectedPlaces.size === 0 || selectedPlaces.has(item.site);
     const isDateMatch = !visitDate || (item.startDate <= visitDate && item.endDate >= visitDate);
-    return isPlaceMatch && isDateMatch;
+    const isKeywordMatch = !keyword || [item.title, item.site, item.description].some(f => f?.toLowerCase().includes(keyword));
+    return isPlaceMatch && isDateMatch && isKeywordMatch;
+  });
+  displayData.sort((a, b) => {
+    const score = (item) => {
+      if (item.title?.toLowerCase().includes(keyword)) return 0;
+      if (item.description?.toLowerCase().includes(keyword)) return 1;
+      if (item.site?.toLowerCase().includes(keyword)) return 2;
+      return 3;
+    };
+    return score(a) - score(b);
   });
   renderPage(1);
 }
@@ -198,7 +229,13 @@ function renderPage(page) {
     <div class="card">
       <img src="${item.img}" class="card-img" onclick="openModalByIdx(${start + idx})" onerror="this.src='https://via.placeholder.com/300x200?text=No+Image'">
       <div class="card-body">
-        <span class="card-tag ${item.statusClass}">${item.status}</span>
+        <span class="card-tag ${item.statusClass}">${
+  item.statusClass === 'tag-ongoing'
+    ? `전시 중 / D-${Math.ceil((new Date(item.endDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')) - new Date()) / 86400000)}`
+    : item.statusClass === 'tag-upcoming'
+    ? `전시 예정 / ${Math.ceil((new Date(item.startDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')) - new Date()) / 86400000)}일 후 시작`
+    : item.status
+}</span>
         <div class="card-title" onclick="openModalByIdx(${start + idx})">${sanitizeHTML(item.title)}</div>
         <div class="card-info"><span class="gray-icon">📅</span> ${item.period}</div>
         <div class="card-info"><span>📍</span> <a href="${getNaverMapLink(item.site)}" target="_blank" class="map-link">${sanitizeHTML(item.site)}</a></div>
@@ -210,11 +247,13 @@ function renderPage(page) {
 function openModalByIdx(idx) {
   const item = displayData[idx];
   document.getElementById('modalTitle').innerText = item.title;
+  document.getElementById('modalImg').src = item.img || '';
   document.getElementById('modalPeriod').innerHTML = `<span class="gray-icon">📅</span> ${item.period}`;
   document.getElementById('modalSite').innerHTML = `<a href="${getNaverMapLink(item.site)}" target="_blank" class="map-link">${item.site}</a>`;
   document.getElementById('modalCharge').innerText = item.charge || '정보 없음';
-  document.getElementById('modalDesc').innerHTML = sanitizeHTML(item.description) || '내용 없음';
+  document.getElementById('modalDesc').innerHTML = item.description || '내용 없음';
   document.getElementById('modalUrl').href = item.url || '#';
+  document.getElementById('modalContent').scrollTop = 0;
   document.getElementById('modalOverlay').style.display = 'flex';
 }
 function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; }
@@ -222,10 +261,28 @@ function updatePagination() {
   const container = document.getElementById('pagination');
   const totalPages = Math.ceil(displayData.length / DISPLAY_COUNT);
   if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+  const makeBtn = (p) =>
+    `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="renderPage(${p})">${p}</button>`;
+  const makeDot = () => `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+
   let html = '';
-  for (let i = 1; i <= totalPages; i++) {
-    html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="renderPage(${i})">${i}</button>`;
+  html += `<button class="page-btn" onclick="renderPage(${Math.max(1, currentPage - 1)})">◀</button>`;
+
+  if (currentPage <= 3) {
+    // 앞쪽: 1,2,3,...,last
+    [1, 2, 3].forEach(p => { if (p <= totalPages) html += makeBtn(p); });
+    if (totalPages > 4) html += makeDot();
+    if (totalPages > 3) html += makeBtn(totalPages);
+  } else {
+    // 중간: 1,2,3,...,current,...,last
+    [1, 2, 3].forEach(p => html += makeBtn(p));
+    html += makeDot();
+    html += makeBtn(currentPage);
+    if (currentPage < totalPages) { html += makeDot(); html += makeBtn(totalPages); }
   }
+
+  html += `<button class="page-btn" onclick="renderPage(${Math.min(totalPages, currentPage + 1)})">▶</button>`;
   container.innerHTML = html;
 }
 
