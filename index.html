@@ -253,8 +253,8 @@ function openModalByIdx(idx) {
   document.getElementById('modalCharge').innerText = item.charge || '정보 없음';
   document.getElementById('modalDesc').innerHTML = item.description || '내용 없음';
   document.getElementById('modalUrl').href = item.url || '#';
-  document.getElementById('modalContent').scrollTop = 0;
   document.getElementById('modalOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('modalContent').scrollTop = 0, 0);
 }
 function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; }
 function updatePagination() {
