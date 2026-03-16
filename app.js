@@ -294,7 +294,9 @@ async function loadData() {
   const loadStatus = document.getElementById('loadInfo');
   try {
     loadStatus.innerText = '데이터 로드 중...';
-    const res = await fetch(DATA_URL + '?t=' + Date.now());
+    const res = await fetch(DATA_URL + '?t=' + Date.now(), {
+    cache: 'no-store'
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
 
